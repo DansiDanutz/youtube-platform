@@ -31,16 +31,22 @@ Make it viral, engaging, and optimized for the YouTube algorithm.`;
 
     let content: GeneratedContent;
 
-    // Try OpenAI first, fallback to mock data
-    if (process.env.OPENAI_API_KEY) {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Try XAI Grok first, then OpenAI, fallback to mock
+    const apiKey = process.env.XAI_API_KEY || process.env.OPENAI_API_KEY;
+    const apiUrl = process.env.XAI_API_KEY 
+      ? 'https://api.x.ai/v1/chat/completions' 
+      : 'https://api.openai.com/v1/chat/completions';
+    const model = process.env.XAI_API_KEY ? 'grok-3-mini-fast' : 'gpt-4';
+
+    if (apiKey) {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4',
+          model,
           messages: [
             {
               role: 'system',
