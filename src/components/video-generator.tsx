@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoProject, VideoScene } from '@/lib/types';
 import CaptionEditor from '@/components/caption-editor';
 import { type CaptionLine, type CaptionStyle } from '@/lib/captions';
+import CollabSession from '@/components/collab-session';
+import { type CollabEvent } from '@/lib/collab';
 import { 
   Video, 
   Wand2, 
@@ -49,6 +51,33 @@ export default function VideoGenerator() {
   const [phase, setPhase] = useState<'setup' | 'scenes' | 'preview' | 'render'>('setup');
   const [captions, setCaptions] = useState<CaptionLine[]>([]);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle | null>(null);
+
+  // Collab
+  const [collabRoomId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('room') || `room_${Math.random().toString(36).slice(2, 10)}`;
+    }
+    return `room_${Math.random().toString(36).slice(2, 10)}`;
+  });
+  const [collabUserId] = useState<string>(() => `user_${Math.random().toString(36).slice(2, 8)}`);
+  const [collabUserName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('yt_collab_name');
+      if (saved) return saved;
+    }
+    return `Creator ${Math.floor(Math.random() * 900 + 100)}`;
+  });
+  const sendCollabEvent = useRef<((type: CollabEvent['type'], payload?: Record<string, unknown>) => void) | null>(null);
+
+  const handleCollabEvent = useCallback((event: CollabEvent) => {
+    if (event.type === 'script_update' && event.payload?.script) {
+      setScript(event.payload.script as string);
+    }
+    if (event.type === 'project_update' && event.payload?.title) {
+      setProject(prev => ({ ...prev, title: event.payload?.title as string }));
+    }
+  }, []);
 
   const handleGenerateScenes = async () => {
     if (!script.trim() || !project.title) return;
