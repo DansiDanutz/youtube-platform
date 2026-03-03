@@ -14,6 +14,8 @@ import { type CaptionLine, type CaptionStyle } from '@/lib/captions';
 import CollabSession from '@/components/collab-session';
 import VoiceoverStudio from '@/components/voiceover-studio';
 import { type VoiceoverConfig } from '@/lib/voices';
+import KeyframeEditor from '@/components/keyframe-editor';
+import { type SceneKeyframes } from '@/lib/keyframes';
 import { type CollabEvent } from '@/lib/collab';
 import { 
   Video, 
@@ -55,6 +57,8 @@ export default function VideoGenerator() {
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle | null>(null);
   const [voiceoverUrl, setVoiceoverUrl] = useState<string | null>(null);
   const [voiceoverConfig, setVoiceoverConfig] = useState<VoiceoverConfig | null>(null);
+  const [sceneKeyframes, setSceneKeyframes] = useState<SceneKeyframes[]>([]);
+  const [showKeyframes, setShowKeyframes] = useState(false);
 
   // Collab
   const [collabRoomId] = useState<string>(() => {
@@ -422,6 +426,30 @@ export default function VideoGenerator() {
               </Card>
             ))}
           </div>
+
+          {/* Keyframe Control */}
+          {project.scenes.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowKeyframes(p => !p)}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 hover:border-yellow-500 hover:text-yellow-300 transition-colors w-full"
+              >
+                <span className="text-yellow-400">🎬</span>
+                Keyframe Control
+                <span className="text-xs text-gray-500 ml-auto">
+                  {showKeyframes ? 'Hide ▲' : 'Show ▼'}
+                </span>
+              </button>
+              {showKeyframes && (
+                <div className="mt-3 p-4 bg-zinc-900 border border-zinc-800 rounded-lg">
+                  <KeyframeEditor
+                    scenes={project.scenes}
+                    onChange={kf => setSceneKeyframes(kf)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
