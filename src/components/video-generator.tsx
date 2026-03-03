@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoProject, VideoScene } from '@/lib/types';
+import CaptionEditor from '@/components/caption-editor';
+import { type CaptionLine, type CaptionStyle } from '@/lib/captions';
 import { 
   Video, 
   Wand2, 
@@ -24,7 +26,8 @@ import {
   CheckCircle,
   Circle,
   Loader2,
-  Clapperboard
+  Clapperboard,
+  Subtitles
 } from 'lucide-react';
 
 export default function VideoGenerator() {
@@ -44,6 +47,8 @@ export default function VideoGenerator() {
   const [script, setScript] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [phase, setPhase] = useState<'setup' | 'scenes' | 'preview' | 'render'>('setup');
+  const [captions, setCaptions] = useState<CaptionLine[]>([]);
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle | null>(null);
 
   const handleGenerateScenes = async () => {
     if (!script.trim() || !project.title) return;
@@ -408,6 +413,21 @@ export default function VideoGenerator() {
                   </Button>
                 </div>
               </div>
+            </div>
+
+            {/* Auto-Captions */}
+            <div className="border-t border-zinc-700 pt-4">
+              <CaptionEditor
+                script={script}
+                duration={project.scenes.reduce((sum, s) => sum + (s.duration || 5), 0) || 60}
+                onCaptionsReady={(lines, style) => { setCaptions(lines); setCaptionStyle(style); }}
+              />
+              {captions.length > 0 && (
+                <p className="text-xs text-green-400 mt-2 flex items-center gap-1">
+                  <Subtitles className="w-3 h-3" />
+                  {captions.length} caption lines ready for export
+                </p>
+              )}
             </div>
 
             <div className="flex justify-between items-center">
