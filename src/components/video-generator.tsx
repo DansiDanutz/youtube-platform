@@ -12,6 +12,8 @@ import { VideoProject, VideoScene } from '@/lib/types';
 import CaptionEditor from '@/components/caption-editor';
 import { type CaptionLine, type CaptionStyle } from '@/lib/captions';
 import CollabSession from '@/components/collab-session';
+import VoiceoverStudio from '@/components/voiceover-studio';
+import { type VoiceoverConfig } from '@/lib/voices';
 import { type CollabEvent } from '@/lib/collab';
 import { 
   Video, 
@@ -51,6 +53,8 @@ export default function VideoGenerator() {
   const [phase, setPhase] = useState<'setup' | 'scenes' | 'preview' | 'render'>('setup');
   const [captions, setCaptions] = useState<CaptionLine[]>([]);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle | null>(null);
+  const [voiceoverUrl, setVoiceoverUrl] = useState<string | null>(null);
+  const [voiceoverConfig, setVoiceoverConfig] = useState<VoiceoverConfig | null>(null);
 
   // Collab
   const [collabRoomId] = useState<string>(() => {
@@ -443,6 +447,16 @@ export default function VideoGenerator() {
                 </div>
               </div>
             </div>
+
+            {/* Voiceover Studio */}
+            {project.voiceover && (
+              <div className="border-t border-zinc-700 pt-4">
+                <VoiceoverStudio
+                  script={script}
+                  onVoiceoverReady={(url, cfg) => { setVoiceoverUrl(url); setVoiceoverConfig(cfg); }}
+                />
+              </div>
+            )}
 
             {/* Auto-Captions */}
             <div className="border-t border-zinc-700 pt-4">
