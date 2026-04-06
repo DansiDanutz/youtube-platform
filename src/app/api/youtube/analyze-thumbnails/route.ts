@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ThumbnailScore } from '@/lib/types';
+import { parseJSON } from '@/lib/ai-client';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,33 +11,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please upload 2-4 images' }, { status: 400 });
     }
 
-    const results: ThumbnailScore[] = [];
+    const results: ThumbnailScore[] = await Promise.all(
+      images.map((file) => analyzeImage(file))
+    );
 
-    for (let i = 0; i < images.length; i++) {
-      const file = images[i];
-      
-      // Convert file to base64 for API calls
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-      const base64 = buffer.toString('base64');
-      const dataUrl = `data:${file.type};base64,${base64}`;
-
-      let score: ThumbnailScore;
-
-      // Try OpenAI Vision API if available
-      if (process.env.OPENAI_API_KEY) {
-        try {
-          score = await analyzeWithOpenAI(dataUrl, file.name);
-        } catch (error) {
-          console.error('OpenAI analysis failed:', error);
-          score = generateMockAnalysis(dataUrl, file.name);
-        }
-      } else {
-        score = generateMockAnalysis(dataUrl, file.name);
-      }
-
-      results.push(score);
-    }
+    // Mark the winner (highest overall_ctr)
+    const maxCTR = Math.max(...results.map((r) => r.scores.overall_ctr));
+    results.forEach((r) => {
+      r.isWinner = r.scores.overall_ctr === maxCTR;
+    });
 
     return NextResponse.json(results);
   } catch (error) {
@@ -45,159 +28,134 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function analyzeWithOpenAI(dataUrl: string, filename: string): Promise<ThumbnailScore> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4-vision-preview',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a YouTube thumbnail optimization expert. Analyze thumbnails and provide scores (0-10) for: visual_contrast, emotional_trigger, text_readability, curiosity_gap, and overall_ctr. Also provide detailed reasoning.'
+async function analyzeImage(file: File): Promise<ThumbnailScore> {
+  const bytes = await file.arrayBuffer();
+  const base64 = Buffer.from(bytes).toString('base64');
+  const dataUrl = `data:${file.type};base64,${base64}`;
+
+  const systemPrompt = 'You are a YouTube thumbnail optimization expert. Analyze thumbnails and return only valid JSON.';
+  const userPrompt = `Analyze this YouTube thumbnail and score it 0–10 on:
+1. visual_contrast — how well it stands out in the feed
+2. emotional_trigger — emotional impact, use of faces/expressions
+3. text_readability — clarity of any text on mobile
+4. curiosity_gap — how much it makes you want to click
+
+Return exactly:
+{
+  scores: {
+    visual_contrast: number,
+    emotional_trigger: number,
+    text_readability: number,
+    curiosity_gap: number,
+    overall_ctr: number
+  },
+  reasoning: 2-3 sentence expert analysis with specific improvement tips
+}`;
+
+  // 1. Try Gemini 2.5 Flash via OpenRouter (FREE, best vision model)
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${orKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://nervix.ai',
         },
-        {
-          role: 'user',
-          content: [
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
             {
-              type: 'text',
-              text: 'Analyze this YouTube thumbnail and rate it on: 1) Visual contrast (how well it stands out), 2) Emotional trigger (does it evoke emotion), 3) Text readability (can you read any text clearly), 4) Curiosity gap (does it make you want to click), 5) Overall CTR potential. Provide scores 0-10 and detailed reasoning. Return as JSON with "scores" object and "reasoning" string.'
+              role: 'user',
+              content: [
+                { type: 'text', text: userPrompt },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
             },
-            {
-              type: 'image_url',
-              image_url: { url: dataUrl }
-            }
-          ]
+          ],
+          temperature: 0.3,
+          max_tokens: 800,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content ?? '';
+        const analysis = parseJSON<{ scores: ThumbnailScore['scores']; reasoning: string }>(text);
+        if (analysis?.scores?.overall_ctr !== undefined) {
+          return { filename: file.name, url: dataUrl, scores: analysis.scores, reasoning: analysis.reasoning };
         }
-      ],
-      max_tokens: 1000,
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.statusText}`);
+      }
+    } catch {
+      // fall through
+    }
   }
 
-  const data = await response.json();
-  
-  try {
-    const analysis = JSON.parse(data.choices[0].message.content);
-    return {
-      filename,
-      url: dataUrl,
-      scores: analysis.scores,
-      reasoning: analysis.reasoning
-    };
-  } catch (parseError) {
-    // If JSON parsing fails, extract scores from text
-    const text = data.choices[0].message.content;
-    return extractScoresFromText(dataUrl, filename, text);
+  // 2. Try OpenAI Vision (paid fallback)
+  const oaiKey = process.env.OPENAI_API_KEY;
+  if (oaiKey) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${oaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userPrompt },
+                { type: 'image_url', image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+          temperature: 0.3,
+          max_tokens: 800,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content ?? '';
+        const analysis = parseJSON<{ scores: ThumbnailScore['scores']; reasoning: string }>(text);
+        if (analysis?.scores?.overall_ctr !== undefined) {
+          return { filename: file.name, url: dataUrl, scores: analysis.scores, reasoning: analysis.reasoning };
+        }
+      }
+    } catch {
+      // fall through
+    }
   }
+
+  // 3. Mock fallback
+  return generateMockAnalysis(dataUrl, file.name);
 }
 
 function generateMockAnalysis(dataUrl: string, filename: string): ThumbnailScore {
-  // Generate realistic mock scores with some randomization
-  const baseScores = {
-    visual_contrast: 6.5 + Math.random() * 3,
-    emotional_trigger: 5.5 + Math.random() * 3.5,
-    text_readability: 6 + Math.random() * 3,
-    curiosity_gap: 5.8 + Math.random() * 3.2,
-  };
-
-  // Overall CTR is weighted average of other scores
-  const overall_ctr = (
-    baseScores.visual_contrast * 0.3 +
-    baseScores.emotional_trigger * 0.25 +
-    baseScores.text_readability * 0.2 +
-    baseScores.curiosity_gap * 0.25
-  );
+  const vc = 6.5 + Math.random() * 3;
+  const et = 5.5 + Math.random() * 3.5;
+  const tr = 6.0 + Math.random() * 3;
+  const cg = 5.8 + Math.random() * 3.2;
+  const overall_ctr = Math.min(9.5, vc * 0.3 + et * 0.25 + tr * 0.2 + cg * 0.25);
 
   const scores = {
-    ...baseScores,
-    overall_ctr: Math.min(9.5, overall_ctr)
+    visual_contrast: Math.round(vc * 10) / 10,
+    emotional_trigger: Math.round(et * 10) / 10,
+    text_readability: Math.round(tr * 10) / 10,
+    curiosity_gap: Math.round(cg * 10) / 10,
+    overall_ctr: Math.round(overall_ctr * 10) / 10,
   };
 
-  // Round scores to 1 decimal place
-  Object.keys(scores).forEach(key => {
-    scores[key as keyof typeof scores] = Math.round(scores[key as keyof typeof scores] * 10) / 10;
-  });
+  const reasoning = [
+    scores.visual_contrast >= 8 ? 'Excellent visual contrast.' : scores.visual_contrast >= 6 ? 'Good contrast, could use bolder colors.' : 'Low contrast — brighten or add more color.',
+    scores.emotional_trigger >= 8 ? 'Strong emotional appeal.' : 'Add faces or emotional cues to boost clicks.',
+    scores.curiosity_gap >= 8 ? 'Creates a strong curiosity gap.' : 'Add mystery elements or a teaser to increase intrigue.',
+  ].join(' ');
 
-  const reasoning = generateMockReasoning(scores, filename);
-
-  return {
-    filename,
-    url: dataUrl,
-    scores,
-    reasoning
-  };
-}
-
-function generateMockReasoning(scores: any, filename: string): string {
-  const insights: string[] = [];
-
-  if (scores.visual_contrast >= 8) {
-    insights.push('Excellent visual contrast that will stand out in the YouTube feed.');
-  } else if (scores.visual_contrast >= 6) {
-    insights.push('Good visual contrast, but could be improved with bolder colors or better lighting.');
-  } else {
-    insights.push('Low visual contrast may make this thumbnail blend into the feed. Consider brightening or adding more contrasting elements.');
-  }
-
-  if (scores.emotional_trigger >= 8) {
-    insights.push('Strong emotional appeal that should drive clicks.');
-  } else if (scores.emotional_trigger >= 6) {
-    insights.push('Moderate emotional impact. Adding facial expressions or emotional cues could improve engagement.');
-  } else {
-    insights.push('Limited emotional trigger. Consider adding human faces, expressions, or emotionally charged elements.');
-  }
-
-  if (scores.text_readability >= 8) {
-    insights.push('Text is very clear and readable, even on mobile devices.');
-  } else if (scores.text_readability >= 6) {
-    insights.push('Text readability is decent but could be improved with better contrast or font size.');
-  } else if (scores.text_readability >= 3) {
-    insights.push('Text readability is poor. Consider larger fonts, better contrast, or fewer words.');
-  } else {
-    insights.push('No readable text detected, which may limit click-through rate for text-dependent content.');
-  }
-
-  if (scores.curiosity_gap >= 8) {
-    insights.push('Creates a strong curiosity gap that compels viewers to click.');
-  } else if (scores.curiosity_gap >= 6) {
-    insights.push('Moderate curiosity factor. Adding mystery elements or "teaser" components could help.');
-  } else {
-    insights.push('Low curiosity gap. The thumbnail reveals too much or doesn\'t create enough intrigue.');
-  }
-
-  return insights.join(' ');
-}
-
-function extractScoresFromText(dataUrl: string, filename: string, text: string): ThumbnailScore {
-  // Extract numerical scores from text response
-  const scores = {
-    visual_contrast: extractScore(text, 'visual.?contrast') || 6.5,
-    emotional_trigger: extractScore(text, 'emotional.?trigger') || 6.0,
-    text_readability: extractScore(text, 'text.?readability') || 6.5,
-    curiosity_gap: extractScore(text, 'curiosity.?gap') || 6.0,
-    overall_ctr: 0
-  };
-
-  scores.overall_ctr = (scores.visual_contrast + scores.emotional_trigger + scores.text_readability + scores.curiosity_gap) / 4;
-
-  return {
-    filename,
-    url: dataUrl,
-    scores,
-    reasoning: text.substring(0, 500) + '...'
-  };
-}
-
-function extractScore(text: string, pattern: string): number | null {
-  const regex = new RegExp(`${pattern}[^\\d]*([\\d\\.]+)`, 'i');
-  const match = text.match(regex);
-  return match ? Math.min(10, Math.max(0, parseFloat(match[1]))) : null;
+  return { filename, url: dataUrl, scores, reasoning };
 }
