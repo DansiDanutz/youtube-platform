@@ -8,6 +8,7 @@ import {
   isFiniteNumberInRange,
   isSafeImageSource,
   isSafeIdentifier,
+  normalizeVoiceoverControls,
 } from '../src/lib/api-guards.mjs';
 
 test('bounds text inputs by type, content, and length', () => {
@@ -48,4 +49,17 @@ test('rejects provider identifiers that can alter an upstream URL path', () => {
   assert.equal(isSafeIdentifier('../../models'), false);
   assert.equal(isSafeIdentifier('request/other'), false);
   assert.equal(isSafeIdentifier('x'.repeat(129)), false);
+});
+
+test('preserves voiceover defaults for omitted synthesis controls', () => {
+  assert.deepEqual(normalizeVoiceoverControls({}), {
+    speed: 1,
+    pitch: 0,
+    volume: 1,
+  });
+  assert.deepEqual(normalizeVoiceoverControls({ speed: 1.5, pitch: -2, volume: 0.8 }), {
+    speed: 1.5,
+    pitch: -2,
+    volume: 0.8,
+  });
 });

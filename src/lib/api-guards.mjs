@@ -63,3 +63,11 @@ export function isSafeIdentifier(value, maximumLength = 128) {
     && value.length <= maximumLength
     && /^[a-zA-Z0-9_-]+$/.test(value);
 }
+
+export function normalizeVoiceoverControls(config) {
+  return {
+    speed: config?.speed ?? 1,
+    pitch: config?.pitch ?? 0,
+    volume: config?.volume ?? 1,
+  };
+}
