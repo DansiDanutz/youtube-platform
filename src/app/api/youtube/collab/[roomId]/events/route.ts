@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import {
   joinRoom,
   leaveRoom,
@@ -10,6 +10,7 @@ import {
   toSSE,
   type CollabEvent,
 } from '@/lib/collab'
+import { isBoundedText, isSafeIdentifier } from '@/lib/api-guards.mjs'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -20,8 +21,17 @@ export async function GET(
 ) {
   const { roomId } = await params
   const { searchParams } = new URL(request.url)
-  const userId = searchParams.get('userId') || `user_${Math.random().toString(36).slice(2, 8)}`
+  const requestedUserId = searchParams.get('userId')
+  const userId = requestedUserId || `user_${Math.random().toString(36).slice(2, 8)}`
   const name = searchParams.get('name') || `User ${userId.slice(-4)}`
+
+  if (
+    !isSafeIdentifier(roomId, 64)
+    || (requestedUserId !== null && !isSafeIdentifier(requestedUserId, 64))
+    || !isBoundedText(name, 80)
+  ) {
+    return NextResponse.json({ error: 'Invalid collaboration session' }, { status: 400 })
+  }
 
   const user = joinRoom(roomId, userId, name)
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { scriptToCaptions, type CaptionLine } from '@/lib/captions'
+import { isBoundedText, isFiniteNumberInRange } from '@/lib/api-guards.mjs'
 
 const XAI_API_KEY = process.env.XAI_API_KEY
 const XAI_CHAT_URL = 'https://api.x.ai/v1/chat/completions'
@@ -13,8 +14,15 @@ export async function POST(request: NextRequest) {
       maxCharsPerLine?: number
     }
 
-    if (!script?.trim()) {
-      return NextResponse.json({ error: 'Script is required' }, { status: 400 })
+    const normalizedDuration = duration ?? 60
+    const normalizedMaxChars = maxCharsPerLine ?? 42
+    if (
+      !isBoundedText(script, 20_000)
+      || !isFiniteNumberInRange(normalizedDuration, 1, 14_400)
+      || !Number.isInteger(normalizedMaxChars)
+      || !isFiniteNumberInRange(normalizedMaxChars, 10, 200)
+    ) {
+      return NextResponse.json({ error: 'Invalid or oversized caption request' }, { status: 400 })
     }
 
     // If XAI is available, use it to clean/segment the script more naturally
@@ -61,8 +69,7 @@ Rules:
     }
 
     // Convert segmented script to timed caption lines
-    const chars = maxCharsPerLine ?? 42
-    const captions: CaptionLine[] = scriptToCaptions(processedScript, duration ?? 60, chars)
+    const captions: CaptionLine[] = scriptToCaptions(processedScript, normalizedDuration, normalizedMaxChars)
 
     // Scale timing to fit actual video duration
     if (captions.length > 0 && duration) {

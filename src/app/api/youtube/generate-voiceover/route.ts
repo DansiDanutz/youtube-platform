@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getVoicesForLanguage, type VoiceoverConfig } from '@/lib/voices'
+import { isBoundedJsonValue, isBoundedText, isFiniteNumberInRange } from '@/lib/api-guards.mjs'
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -11,8 +12,15 @@ export async function POST(request: NextRequest) {
       config: VoiceoverConfig
     }
 
-    if (!text?.trim()) {
-      return NextResponse.json({ error: 'text is required' }, { status: 400 })
+    const validConfig = isBoundedJsonValue(config, 4_096)
+      && isBoundedText(config?.languageCode, 32)
+      && isBoundedText(config?.voiceId, 64)
+      && isFiniteNumberInRange(config?.speed, 0.25, 4)
+      && isFiniteNumberInRange(config?.pitch, -10, 10)
+      && isFiniteNumberInRange(config?.volume, 0, 1)
+
+    if (!isBoundedText(text, 4_000) || !validConfig) {
+      return NextResponse.json({ error: 'Invalid or oversized voiceover request' }, { status: 400 })
     }
 
     // Determine voice preset
