@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ThumbnailScore } from '@/lib/types';
 import { parseJSON } from '@/lib/ai-client';
+import { isAllowedImageFile, MAX_IMAGE_BATCH_BYTES } from '@/lib/api-guards.mjs';
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const images = formData.getAll('images') as File[];
+    const imageValues = formData.getAll('images');
 
-    if (images.length < 2 || images.length > 4) {
+    if (imageValues.length < 2 || imageValues.length > 4) {
       return NextResponse.json({ error: 'Please upload 2-4 images' }, { status: 400 });
+    }
+
+    if (imageValues.some((value) => !(value instanceof File) || !isAllowedImageFile(value))) {
+      return NextResponse.json(
+        { error: 'Images must be non-empty JPEG, PNG, or WebP files no larger than 5 MB each' },
+        { status: 400 }
+      );
+    }
+
+    const images = imageValues as File[];
+    if (images.reduce((total, file) => total + file.size, 0) > MAX_IMAGE_BATCH_BYTES) {
+      return NextResponse.json({ error: 'Combined image upload must not exceed 15 MB' }, { status: 413 });
     }
 
     const results: ThumbnailScore[] = await Promise.all(

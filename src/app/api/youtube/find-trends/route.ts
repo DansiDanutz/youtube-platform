@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callAI, parseJSON } from '@/lib/ai-client';
+import { isBoundedText } from '@/lib/api-guards.mjs';
 
 export async function POST(request: NextRequest) {
   try {
     const { niche }: { niche: string } = await request.json();
 
-    if (!niche) {
-      return NextResponse.json({ error: 'Niche is required' }, { status: 400 });
+    if (!isBoundedText(niche, 120)) {
+      return NextResponse.json({ error: 'Niche must contain 1-120 characters' }, { status: 400 });
     }
 
     const aiResult = await callAI([

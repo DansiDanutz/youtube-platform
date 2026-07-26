@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { VideoTemplate, GeneratedContent } from '@/lib/types';
 import { callAI, parseJSON } from '@/lib/ai-client';
+import { isBoundedJsonValue, isBoundedText } from '@/lib/api-guards.mjs';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,8 +11,18 @@ export async function POST(request: NextRequest) {
       niche: string;
     } = await request.json();
 
-    if (!template || !topic) {
-      return NextResponse.json({ error: 'Template and topic are required' }, { status: 400 });
+    const validTemplate = isBoundedJsonValue(template, 16_000)
+      && isBoundedText(template.name, 120)
+      && Array.isArray(template.structure)
+      && template.structure.length <= 20
+      && template.structure.every((section) => isBoundedText(section, 500))
+      && Array.isArray(template.hooks)
+      && template.hooks.length > 0
+      && template.hooks.length <= 20
+      && template.hooks.every((hook) => isBoundedText(hook, 500));
+
+    if (!validTemplate || !isBoundedText(topic, 200) || (niche && !isBoundedText(niche, 120))) {
+      return NextResponse.json({ error: 'Invalid or oversized content request' }, { status: 400 });
     }
 
     const prompt = `Generate YouTube content for the "${template.name}" format about "${topic}"${niche ? ` in the ${niche} niche` : ''}.

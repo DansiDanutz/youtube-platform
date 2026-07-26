@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getVoicesForLanguage, type VoiceoverConfig } from '@/lib/voices'
+import {
+  isBoundedJsonValue,
+  isBoundedText,
+  isFiniteNumberInRange,
+  normalizeVoiceoverControls,
+} from '@/lib/api-guards.mjs'
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -11,8 +17,16 @@ export async function POST(request: NextRequest) {
       config: VoiceoverConfig
     }
 
-    if (!text?.trim()) {
-      return NextResponse.json({ error: 'text is required' }, { status: 400 })
+    const controls = normalizeVoiceoverControls(config)
+    const validConfig = isBoundedJsonValue(config, 4_096)
+      && isBoundedText(config?.languageCode, 32)
+      && isBoundedText(config?.voiceId, 64)
+      && isFiniteNumberInRange(controls.speed, 0.25, 4)
+      && isFiniteNumberInRange(controls.pitch, -10, 10)
+      && isFiniteNumberInRange(controls.volume, 0, 1)
+
+    if (!isBoundedText(text, 4_000) || !validConfig) {
+      return NextResponse.json({ error: 'Invalid or oversized voiceover request' }, { status: 400 })
     }
 
     // Determine voice preset
@@ -66,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     // ── Try OpenAI TTS ───────────────────────────────────────────────────────
     if (OPENAI_API_KEY && preset.openAiVoice) {
-      const speedClamped = Math.min(4.0, Math.max(0.25, config.speed ?? 1.0))
+      const speedClamped = Math.min(4.0, Math.max(0.25, controls.speed))
 
       const res = await fetch('https://api.openai.com/v1/audio/speech', {
         method: 'POST',
@@ -103,9 +117,9 @@ export async function POST(request: NextRequest) {
       text,
       languageCode: config.languageCode,
       voiceHint: preset.webSpeechHint ?? null,
-      speed: config.speed ?? 1.0,
-      pitch: config.pitch ?? 0,
-      volume: config.volume ?? 1.0,
+      speed: controls.speed,
+      pitch: controls.pitch,
+      volume: controls.volume,
       message: 'No TTS API keys configured — use browser Web Speech API',
     })
   } catch (error) {
