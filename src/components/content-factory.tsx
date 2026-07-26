@@ -323,7 +323,7 @@ export default function ContentFactory() {
                 Trending Topics
               </CardTitle>
               <CardDescription>
-                Discover what's trending in your niche right now
+                Discover what&apos;s trending in your niche right now
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
