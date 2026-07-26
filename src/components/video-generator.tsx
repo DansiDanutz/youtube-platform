@@ -227,7 +227,7 @@ export default function VideoGenerator() {
 
               <div>
                 <label className="text-sm font-medium text-zinc-300">Visual Style</label>
-                <Select value={project.style} onValueChange={(value: any) => setProject(prev => ({ ...prev, style: value }))}>
+                <Select value={project.style} onValueChange={(value: VideoProject['style']) => setProject(prev => ({ ...prev, style: value }))}>
                   <SelectTrigger className="bg-zinc-800 border-zinc-700">
                     <SelectValue />
                   </SelectTrigger>
@@ -242,7 +242,7 @@ export default function VideoGenerator() {
 
               <div>
                 <label className="text-sm font-medium text-zinc-300">Aspect Ratio</label>
-                <Select value={project.aspectRatio} onValueChange={(value: any) => setProject(prev => ({ ...prev, aspectRatio: value }))}>
+                <Select value={project.aspectRatio} onValueChange={(value: VideoProject['aspectRatio']) => setProject(prev => ({ ...prev, aspectRatio: value }))}>
                   <SelectTrigger className="bg-zinc-800 border-zinc-700">
                     <SelectValue />
                   </SelectTrigger>
